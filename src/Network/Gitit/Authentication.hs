@@ -273,7 +273,7 @@ requestLink :: String -> String -> String -> String
 requestLink base' email code =
   exportURL $ foldl add_param
     (fromJust . importURL $ base' ++ "/_verifyEmail")
-    [("email", email), ("request_code", code), ("destination", "/"]
+    [("email", email), ("request_code", code), ("destination", "/")]
 
 -- | Creates and sends a email verification message to `email` with `code` as
 -- request code.
