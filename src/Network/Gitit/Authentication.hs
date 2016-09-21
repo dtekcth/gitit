@@ -207,6 +207,191 @@ doResetPassword params = validateReset params $ \user -> do
                          pPassword = pword,
                          pEmail = email }
 
+-- | Prompts the user to insert an email address to send a verification message.
+registerUserRequestForm :: Handler
+registerUserRequestForm = do
+  cfg <- getConfig
+
+  -- Create the form
+  let requestForm = gui "" ! [identifier "verifyEmail"] << fieldset <<
+                    [ label ! [thefor "email" ] << "Email (must be a @student.chalmers.se: or @dtek.se mail): "
+                    , br
+                    , textfield "email" ! [size "20", intAttr "tabindex" 1]
+                    , stringToHtml " "
+                    , submit "verifyEmail" "Request an account" ! [intAttr "tabindex" 2]]
+
+  -- Fill the content with form if mail command is specified
+  let contents = if null (mailCommand cfg)
+                 then p << "Sorry, email verification is not available."
+                 else requestForm
+
+  -- Render the page
+  formattedPage defaultPageLayout
+    { pgShowPageTools = False
+    , pgTabs = []
+    , pgTitle = "Verify your email" }
+    contents
+
+-- | Handler that fires when user has inserted an email and pressed the request button.
+-- Creates and sends a request message to the supplied email address.
+-- To verify the code sent from the user a copy of the code is stored together with
+-- the email in the email request file.
+registerUserRequest :: Params -> Handler
+registerUserRequest params = do
+  let requestFromParams :: IO (String, String)
+      requestFromParams = (mkEmailRequest . pEmail) params
+  -- Extract email and create a request code
+  (email, reqCode) <- liftIO requestFromParams
+
+  -- Create response
+  let response = p << [ stringToHtml "An email has been sent to "
+                  , bold $ stringToHtml email
+                  , br
+                  , stringToHtml
+                    "Please click on the enclosed link to verify your email."
+                  ]
+
+  -- Check if email is either @dtek.se or @student.chalmers.se
+  if dropWhile (/= '@') email `elem` ["@dtek.se", "@student.chalmers.se"]
+    then do
+    sendRequestEmail email reqCode
+
+    -- Stores email request in file
+    addEmailRequest email reqCode
+
+    -- Render page
+    formattedPage defaultPageLayout
+      { pgShowPageTools = False
+      , pgTabs = []
+      , pgTitle = "Verify your email" }
+      response
+
+    else registerUserRequestForm
+
+-- | Generates a link for the email verification message.
+requestLink :: String -> String -> String -> String
+requestLink base' email code =
+  exportURL $ foldl add_param
+    (fromJust . importURL $ base' ++ "/_verifyEmail")
+    [("email", email), ("request_code", code), ("destination", "/")]
+
+-- | Creates and sends a email verification message to `email` with `code` as
+-- request code.
+sendRequestEmail :: String -> String -> GititServerPart ()
+sendRequestEmail email code = do
+  cfg <- getConfig
+  hostname <- liftIO getHostName
+  base' <- getWikiBase
+  let messageTemplate = T.newSTMP $ requestAccountMessage cfg
+  let filledTemplate = T.render .
+                       T.setAttribute "useremail" email .
+                       T.setAttribute "hostname" hostname .
+                       T.setAttribute "port" (show $ portNumber cfg) .
+                       T.setAttribute "requestlink" (requestLink base' email code) $
+                       messageTemplate
+  let (mailcommand:args) = words $ substitute "%s" email
+                           (mailCommand cfg)
+  (exitCode, _pOut, pErr) <- liftIO $ readProcessWithExitCode mailcommand args
+    filledTemplate
+  liftIO $ logM "gitit" WARNING $ "Sent email verification email to " ++ email
+  unless (exitCode == ExitSuccess) $
+    liftIO $ logM "gitit" WARNING $ mailcommand ++ " failed. " ++ pErr
+
+-- | Validates an account request by comparing the stored request code to that
+-- of the client.
+validateEmailRequest :: Params -> (String -> Handler) -> Handler
+validateEmailRequest params postValidate = do
+  let email = pEmail params
+
+  emailRequest <- getEmailRequest email
+
+  let errors = case emailRequest of
+                 -- Email has not requested an account
+                 Nothing   -> ["Nonexisting account request"]
+
+                 -- Email has requested an account
+                 Just code -> if code == pRequestCode params
+                              then []
+                              else return "Your request code is invalid, try again or request a new code."
+
+  if null errors
+     -- If everyting was correct with the request code, continue to register account
+     then postValidate email
+
+    -- Otherwise display error message on empty page
+     else formattedPage defaultPageLayout
+           { pgMessages = errors
+           , pgShowPageTools = False
+           , pgTabs = []
+           , pgTitle = "Request an account" }
+           noHtml
+
+-- | Validates the email for the account request
+--
+-- If validation was successful, i.e the email has requested an account and
+--  the code matched the one stored on the server, then send user to the
+--  registration form.
+-- Otherwise display error message.
+registerFromEmailRequest :: Params -> Handler
+registerFromEmailRequest params = validateEmailRequest params $ \email ->
+  registerFromEmailRequestForm email >>=
+  formattedPage defaultPageLayout { pgShowPageTools = False
+                                  , pgTabs = []
+                                  , pgTitle = "Register for an account" }
+
+-- | Form for registering users after validating their request code.
+-- A username is automatically created from the email (by stripping the
+-- @domain.com part). This username and email is not changeable.
+registerFromEmailRequestForm :: String -> GititServerPart Html
+registerFromEmailRequestForm email = withData $ \params -> do
+  cfg  <- getConfig
+  dest <- case pDestination params of
+            "" -> getReferer
+            x  -> return x
+
+  -- Create field for access question
+  let accessQ = case accessQuestion cfg of
+                  Nothing -> noHtml
+                  Just (prompt, _) -> label !
+                    [thefor "accessCode"] << prompt
+                    +++ br +++
+                    X.password "accessCode" ! [size "15", intAttr "tabindex" 1]
+                    +++ br
+
+  -- Create Captcha field
+  let captcha = if useRecaptcha cfg
+                   then captchaFields (recaptchaPublicKey cfg) Nothing
+                   else noHtml
+
+  -- Create username from the email address and make it fixed in the form
+  let userName = takeWhile (/= '@') email
+
+  return $ gui "" ! [identifier "loginForm"] << fieldset <<
+    [ accessQ
+    , label ! [thefor "uname"] << ("Username (created from email): ")
+    , br
+    , textfield "uname" ! [size "20", strAttr "disabled" "true", value userName]
+    , br
+    , hidden "username" userName
+    , label ! [thefor "eAddr"] << "Email (will not be displayed on the Wiki):"
+    , br
+    , textfield "eAddr" ! [size "20", strAttr "disabled" "true", value email]
+    , br
+    , hidden "email" email
+    , label ! [thefor "password"] << "Password (at least 6 characters):"
+    , br
+    , X.password "password" ! [size "20", intAttr "tabindex" 1]
+    , stringToHtml " "
+    , br
+    , label ! [thefor "password2"] << "Confirm Password:"
+    , br
+    , X.password "password2" ! [size "20", intAttr "tabindex" 2]
+    , stringToHtml " "
+    , br
+    , captcha
+    , textfield "destination" ! [thestyle "display: none;", value dest]
+    , submit "register" "Register" ! [intAttr "tabindex" 3]]
+
 registerForm :: GititServerPart Html
 registerForm = sharedForm Nothing
 
@@ -253,9 +438,7 @@ sharedForm mbUser = withData $ \params -> do
             , br ! [theclass "req"]
             , textfield "full_name_1" ! [size "20", theclass "req"]
             , br
-            , label ! [thefor "password"]
-                    << ("Password (at least 6 characters," ++
-                        " including at least one non-letter):")
+            , label ! [thefor "password"] << "Password (at least 6 characters)"
             , br
             , X.password "password" ! [size "20", intAttr "tabindex" 4]
             , stringToHtml " "
@@ -276,7 +459,7 @@ sharedValidation :: ValidationType
 sharedValidation validationType params = do
   let isValidUsernameChar c = isAlphaNum c || c == ' '
   let isValidUsername u = length u >= 3 && all isValidUsernameChar u
-  let isValidPassword pw = length pw >= 6 && not (all isAlpha pw)
+  let isValidPassword pw = length pw >= 6
   let accessCode = pAccessCode params
   let uname = pUsername params
   let pword = pPassword params
@@ -412,8 +595,8 @@ registerUserForm = registerForm >>=
 
 formAuthHandlers :: [Handler]
 formAuthHandlers =
-  [ dir "_register"  $ method GET >> registerUserForm
-  , dir "_register"  $ method POST >> withData registerUser
+  [ dir "_register"  $ method GET >> registerUserRequestForm
+  , dir "_register"  $ method POST >> withData registerUserRequest
   , dir "_login"     $ method GET  >> loginUserForm
   , dir "_login"     $ method POST >> withData loginUser
   , dir "_logout"    $ method GET  >> withData logoutUser
@@ -422,6 +605,8 @@ formAuthHandlers =
   , dir "_doResetPassword" $ method GET  >> withData resetPassword
   , dir "_doResetPassword" $ method POST >> withData doResetPassword
   , dir "_user" currentUser
+  , dir "_verifyEmail" $ method GET >> withData registerFromEmailRequest
+  , dir "_verifyEmail" $ method POST >> withData registerUser
   ]
 
 loginUserHTTP :: Params -> Handler

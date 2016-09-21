@@ -37,6 +37,7 @@ import Network.Gitit.Types
 gititstate :: IORef GititState
 gititstate = unsafePerformIO $  newIORef  GititState { sessions = undefined
                                                      , users = undefined
+                                                     , emailRequests = undefined
                                                      , templatesPath = undefined
                                                      , renderPage = undefined
                                                      , plugins = undefined }
@@ -60,6 +61,12 @@ mkUser uname email pass = do
                  uPassword = Password { pSalt = salt,
                                         pHashed = hashPassword salt pass },
                  uEmail = email }
+
+mkEmailRequest :: String -- email
+               -> IO (String, String)
+mkEmailRequest email = do
+  salt <- genSalt
+  return (email, take 30 $ hashPassword salt email)
 
 genSalt :: IO String
 genSalt = replicateM 32 $ randomRIO ('0','z')
@@ -86,17 +93,33 @@ addUser uname user =
   getConfig >>=
   liftIO . writeUserFile
 
+addEmailRequest :: String -> String -> GititServerPart ()
+addEmailRequest email code =
+  updateGititState (\s -> s { emailRequests = M.insert email code (emailRequests s) }) >>
+  getConfig >>=
+  liftIO . writeEmailRequestFile
+
 adjustUser :: String -> User -> GititServerPart ()
 adjustUser uname user = updateGititState
   (\s -> s  { users = M.adjust (const user) uname (users s) }) >>
   getConfig >>=
   liftIO . writeUserFile
 
+adjustEmailRequest :: String -> String -> GititServerPart ()
+adjustEmailRequest email code = updateGititState
+  (\s -> s { emailRequests = M.adjust (const code) email (emailRequests s) }) >>
+  getConfig >>= liftIO . writeEmailRequestFile
+
 delUser :: String -> GititServerPart ()
 delUser uname =
   updateGititState (\s -> s { users = M.delete uname (users s) }) >>
   getConfig >>=
   liftIO . writeUserFile
+
+delEmailRequest :: String -> GititServerPart ()
+delEmailRequest email =
+  updateGititState (\s -> s { emailRequests = M.delete email (emailRequests s) }) >>
+  getConfig >>= liftIO . writeEmailRequestFile
 
 writeUserFile :: Config -> IO ()
 writeUserFile conf = do
@@ -108,8 +131,21 @@ writeUserFile conf = do
                "Error writing user file " ++ show (userFile conf) ++
                "\n" ++ show e
 
+writeEmailRequestFile :: Config -> IO ()
+writeEmailRequestFile conf = do
+  emailRqsts <- queryGititState emailRequests
+  E.handle handleWriteError $ writeFile (emailRequestFile conf) $
+    "[" ++ intercalate "\n," (map show $ M.toList emailRqsts) ++ "\n]"
+    where handleWriteError :: E.SomeException -> IO ()
+          handleWriteError e = logM "gitit" ERROR $
+            "Error writing email request file " ++ show (emailRequestFile conf) ++
+            "\n" ++ show e
+
 getUser :: String -> GititServerPart (Maybe User)
 getUser uname = liftM (M.lookup uname) $ queryGititState users
+
+getEmailRequest :: String -> GititServerPart (Maybe String)
+getEmailRequest email = liftM (M.lookup email) $ queryGititState emailRequests
 
 isSession :: MonadIO m => SessionKey -> m Bool
 isSession key = liftM (M.member key . unsession) $ queryGititState sessions

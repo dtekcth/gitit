@@ -4,8 +4,11 @@ flags:
     network-uri: true
 packages:
 - '.'
-- 'filestore'
+- location:
+    git: git@github.com:dtekcth/filestore.git
+    commit: a847cdcfba7540d80f6e0b4bbedbe60d24dcaa05
 extra-deps:
 - recaptcha-0.1.0.3
 - uri-0.1.6.4
-resolver: lts-5.17
+- json-0.9.1
+resolver: nightly-2016-07-07

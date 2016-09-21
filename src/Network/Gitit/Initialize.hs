@@ -55,17 +55,25 @@ initializeGititState :: Config -> IO ()
 initializeGititState conf = do
   let userFile' = userFile conf
       pluginModules' = pluginModules conf
+      emailRequestFile' = emailRequestFile conf
   plugins' <- loadPlugins pluginModules'
 
   userFileExists <- doesFileExist userFile'
+  emailRequestFileExists <- doesFileExist emailRequestFile'
+
   users' <- if userFileExists
                then liftM (M.fromList . read) $ readFileUTF8 userFile'
                else return M.empty
+
+  emailRequests' <- if emailRequestFileExists
+                       then liftM (M.fromList . read) $ readFileUTF8 emailRequestFile'
+                       else return M.empty
 
   templ <- compilePageTemplate (templatesDir conf)
 
   updateGititState $ \s -> s { sessions      = Sessions M.empty
                              , users         = users'
+                             , emailRequests = emailRequests'
                              , templatesPath = templatesDir conf
                              , renderPage    = defaultRenderPage templ
                              , plugins       = plugins' }

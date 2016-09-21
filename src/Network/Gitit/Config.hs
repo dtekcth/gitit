@@ -98,6 +98,7 @@ extractConfig cp = do
       cfRequireAuthentication <- get cp "DEFAULT" "require-authentication"
       cfAuthenticationMethod <- get cp "DEFAULT" "authentication-method"
       cfUserFile <- get cp "DEFAULT" "user-file"
+      cfEmailRequestFile <- get cp "DEFAULT" "email-request-file"
       cfSessionTimeout <- get cp "DEFAULT" "session-timeout"
       cfTemplatesDir <- get cp "DEFAULT" "templates-dir"
       cfLogFile <- get cp "DEFAULT" "log-file"
@@ -128,6 +129,7 @@ extractConfig cp = do
       cfMimeTypesFile <- get cp "DEFAULT" "mime-types-file"
       cfMailCommand <- get cp "DEFAULT" "mail-command"
       cfResetPasswordMessage <- get cp "DEFAULT" "reset-password-message"
+      cfRequestAccountMessage <- get cp "DEFAULT" "request-account-message"
       cfUseFeed <- get cp "DEFAULT" "use-feed"
       cfBaseUrl <- get cp "DEFAULT" "base-url"
       cfAbsoluteUrls <- get cp "DEFAULT" "absolute-urls"
@@ -159,6 +161,9 @@ extractConfig cp = do
 
       when (null cfUserFile) $
          liftIO $ logM "gitit" ERROR "user-file is empty"
+
+      when (null cfEmailRequestFile) $
+         liftIO $ logM "gitit" ERROR "email-request-file is empty"
 
       return Config{
           repositoryPath       = cfRepositoryPath
@@ -192,6 +197,7 @@ extractConfig cp = do
                                       "rpx"      -> msum rpxAuthHandlers
                                       _          -> mzero
         , userFile             = cfUserFile
+        , emailRequestFile     = cfEmailRequestFile
         , sessionTimeout       = readNumber "session-timeout" cfSessionTimeout * 60  -- convert minutes -> seconds
         , templatesDir         = cfTemplatesDir
         , logFile              = cfLogFile
@@ -228,6 +234,7 @@ extractConfig cp = do
         , mimeMap              = mimeMap'
         , mailCommand          = cfMailCommand
         , resetPasswordMessage = fromQuotedMultiline cfResetPasswordMessage
+        , requestAccountMessage = fromQuotedMultiline cfRequestAccountMessage
         , markupHelp           = markupHelpText
         , useFeed              = cfUseFeed
         , baseUrl              = stripTrailingSlash cfBaseUrl

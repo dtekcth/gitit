@@ -105,111 +105,115 @@ data AuthenticationLevel = Never | ForModify | ForRead
 -- | Data structure for information read from config file.
 data Config = Config {
   -- | Path of repository containing filestore
-  repositoryPath       :: FilePath,
+  repositoryPath        :: FilePath,
   -- | Type of repository
-  repositoryType       :: FileStoreType,
+  repositoryType        :: FileStoreType,
   -- | Default page markup type for this wiki
-  defaultPageType      :: PageType,
+  defaultPageType       :: PageType,
   -- | Default file extension for pages in this wiki
-  defaultExtension     :: String,
+  defaultExtension      :: String,
   -- | How to handle LaTeX math in pages?
-  mathMethod           :: MathMethod,
+  mathMethod            :: MathMethod,
   -- | Treat as literate haskell by default?
-  defaultLHS           :: Bool,
+  defaultLHS            :: Bool,
   -- | Show Haskell code with bird tracks
-  showLHSBirdTracks    :: Bool,
+  showLHSBirdTracks     :: Bool,
   -- | Combinator to set @REMOTE_USER@ request header
-  withUser             :: Handler -> Handler,
+  withUser              :: Handler -> Handler,
   -- | Handler for login, logout, register, etc.
   requireAuthentication :: AuthenticationLevel,
   -- | Specifies which actions require authentication.
-  authHandler          :: Handler,
+  authHandler           :: Handler,
   -- | Path of users database
-  userFile             :: FilePath,
+  userFile              :: FilePath,
+  -- | Path of email verification database
+  emailRequestFile      :: FilePath,
   -- | Seconds of inactivity before session expires
-  sessionTimeout       :: Int,
+  sessionTimeout        :: Int,
   -- | Directory containing page templates
-  templatesDir         :: FilePath,
+  templatesDir          :: FilePath,
   -- | Path of server log file
-  logFile              :: FilePath,
+  logFile               :: FilePath,
   -- | Severity filter for log messages (DEBUG, INFO,
   -- NOTICE, WARNING, ERROR, CRITICAL, ALERT, EMERGENCY)
-  logLevel             :: Priority,
+  logLevel              :: Priority,
   -- | Path of static directory
-  staticDir            :: FilePath,
+  staticDir             :: FilePath,
   -- | Names of plugin modules to load
-  pluginModules        :: [String],
+  pluginModules         :: [String],
   -- | Show table of contents on each page?
-  tableOfContents      :: Bool,
+  tableOfContents       :: Bool,
   -- | Max size of file uploads
-  maxUploadSize        :: Integer,
+  maxUploadSize         :: Integer,
   -- | Max size of page uploads
-  maxPageSize          :: Integer,
+  maxPageSize           :: Integer,
   -- | IP address to bind to
-  address              :: String,
+  address               :: String,
   -- | Port number to serve content on
-  portNumber           :: Int,
+  portNumber            :: Int,
   -- | Print debug info to the console?
-  debugMode            :: Bool,
+  debugMode             :: Bool,
   -- | The front page of the wiki
-  frontPage            :: String,
+  frontPage             :: String,
   -- | Pages that cannot be edited via web
-  noEdit               :: [String],
+  noEdit                :: [String],
   -- | Pages that cannot be deleted via web
-  noDelete             :: [String],
+  noDelete              :: [String],
   -- | Default summary if description left blank
-  defaultSummary       :: String,
+  defaultSummary        :: String,
   -- | Delete summary
-  deleteSummary        :: String,
+  deleteSummary         :: String,
   -- | @Nothing@ = anyone can register.
   -- @Just (prompt, answers)@ = a user will
   -- be given the prompt and must give
   -- one of the answers to register.
-  accessQuestion       :: Maybe (String, [String]),
+  accessQuestion        :: Maybe (String, [String]),
   -- | Use ReCAPTCHA for user registration.
-  useRecaptcha         :: Bool,
-  recaptchaPublicKey   :: String,
-  recaptchaPrivateKey  :: String,
+  useRecaptcha          :: Bool,
+  recaptchaPublicKey    :: String,
+  recaptchaPrivateKey   :: String,
   -- | RPX domain and key
-  rpxDomain            :: String,
-  rpxKey               :: String,
+  rpxDomain             :: String,
+  rpxKey                :: String,
   -- | Should responses be compressed?
-  compressResponses    :: Bool,
+  compressResponses     :: Bool,
   -- | Should responses be cached?
-  useCache             :: Bool,
+  useCache              :: Bool,
   -- | Directory to hold cached pages
-  cacheDir             :: FilePath,
+  cacheDir              :: FilePath,
   -- | Map associating mime types with file extensions
-  mimeMap              :: M.Map String String,
+  mimeMap               :: M.Map String String,
   -- | Command to send notification emails
-  mailCommand          :: String,
+  mailCommand           :: String,
   -- | Text of password reset email
-  resetPasswordMessage :: String,
+  resetPasswordMessage  :: String,
+  -- | Text of account request email
+  requestAccountMessage :: String,
   -- | Markup syntax help for edit sidebar
-  markupHelp           :: String,
+  markupHelp            :: String,
   -- | Provide an atom feed?
-  useFeed              :: Bool,
+  useFeed               :: Bool,
   -- | Base URL of wiki, for use in feed
-  baseUrl              :: String,
+  baseUrl               :: String,
   -- | Title of wiki, used in feed
-  useAbsoluteUrls      :: Bool,
+  useAbsoluteUrls       :: Bool,
   -- | Should WikiLinks be absolute w.r.t. the base URL?
-  wikiTitle            :: String,
+  wikiTitle             :: String,
   -- | Number of days history to be included in feed
-  feedDays             :: Integer,
+  feedDays              :: Integer,
   -- | Number of minutes to cache feeds before refreshing
-  feedRefreshTime      :: Integer,
+  feedRefreshTime       :: Integer,
   -- | Allow PDF export?
-  pdfExport            :: Bool,
+  pdfExport             :: Bool,
   -- | Directory to search for pandoc customizations
-  pandocUserData       :: Maybe FilePath,
+  pandocUserData        :: Maybe FilePath,
   -- | Filter HTML through xss-sanitize
-  xssSanitize          :: Bool,
+  xssSanitize           :: Bool,
   -- | The default number of days in the past to look for \"recent\" activity
-  recentActivityDays   :: Int,
+  recentActivityDays    :: Int,
   -- | Github client data for authentication (id, secret, callback,
   -- authorize endpoint, access token endpoint)
-  githubAuth           :: GithubConfig
+  githubAuth            :: GithubConfig
   }
 
 -- | Data for rendering a wiki page.
@@ -254,6 +258,7 @@ data User = User {
 data GititState = GititState {
   sessions       :: Sessions SessionData,
   users          :: M.Map String User,
+  emailRequests  :: M.Map String String,
   templatesPath  :: FilePath,
   renderPage     :: PageLayout -> Html -> Handler,
   plugins        :: [Plugin]
@@ -359,6 +364,7 @@ data Params = Params { pUsername     :: String
                      , pSessionKey   :: Maybe SessionKey
                      , pRecaptcha    :: Recaptcha
                      , pResetCode    :: String
+                     , pRequestCode  :: String
                      , pRedirect     :: Maybe Bool
                      }  deriving Show
 
@@ -411,6 +417,7 @@ instance FromData Params where
          rc <- look' "recaptcha_challenge_field" `mplus` return ""
          rr <- look' "recaptcha_response_field" `mplus` return ""
          rk <- look' "reset_code" `mplus` return ""
+         reqCode <- look' "request_code" `mplus` return ""
          rd <- (look' "redirect" >>= \r -> return (case r of
              "yes" -> Just True
              "no" -> Just False
@@ -448,6 +455,7 @@ instance FromData Params where
                               recaptchaChallengeField = rc,
                               recaptchaResponseField = rr }
                          , pResetCode    = rk
+                         , pRequestCode  = reqCode
                          , pRedirect     = rd
                          }
 
